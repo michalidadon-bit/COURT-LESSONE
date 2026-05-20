@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>תיאום שיעור לחיים – צו מעשה</title>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+Hebrew:wght@400;600;700&display=swap" rel="stylesheet"/>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{background:#faf8f5;font-family:'Noto Serif Hebrew',sans-serif}
+    @keyframes spin{to{transform:rotate(360deg)}}
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useCallback } = React;
+
+const BIN_ID = "6a0cb722ee5a733b12e741ca";
+const MASTER_KEY = "$2a$10$pN7T6/Kv9Cfdr9DNKWfwOu7RNOqQCL947wP/oXJSOGMm4128lw5N6";
+const BIN_URL = `https://api.jsonbin.io/v3/b/${BIN_ID}`;
+
+async function dbGet() {
+  const res = await fetch(BIN_URL + "/latest", { headers: { "X-Master-Key": MASTER_KEY } });
+  const data = await res.json();
+  return data.record || {};
+}
+async function dbSet(newData) {
+  await fetch(BIN_URL, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", "X-Master-Key": MASTER_KEY },
+    body: JSON.stringify(newData),
+  });
+}
+
+const TOPICS = {
+  violence: {
+    id: "violence", label: "מיגור תופעת האלימות בקרב בני הנוער", grades: "לכיתות ז'–י\"ב",
+    color: "#b5451b", accent: "#f0c5b2",
+    dates: [
+      {date:"10.06.2026",day:"רביעי"},{date:"16.06.2026",day:"שלישי"},
+      {date:"11.10.2026",day:"ראשון"},{date:"13.10.2026",day:"שלישי"},
+      {date:"25.10.2026",day:"ראשון"},{date:"27.10.2026",day:"שלישי"},
+      {date:"01.11.2026",day:"ראשון"},{date:"02.11.2026",day:"שני"},
+      {date:"03.11.2026",day:"שלישי"},{date:"08.11.2026",day:"ראשון"},
+      {date:"10.11.2026",day:"שלישי"},{date:"17.11.2026",day:"שלישי"},
+      {date:"08.12.2026",day:"שלישי"},{date:"02.02.2027",day:"שלישי"},
+      {date:"16.02.2027",day:"שלישי"},{date:"06.04.2027",day:"שלישי"},
+    ],
+  },
+  traffic: {
+    id: "traffic", label: "חינוך תעבורתי", grades: "לכיתות י\"א–י\"ב",
+    color: "#1b5e8a", accent: "#b2d4f0",
+    dates: [
+      {date:"14.09.2026",day:"שני"},{date:"22.09.2026",day:"שלישי"},
+      {date:"23.09.2026",day:"רביעי"},{date:"12.11.2026",day:"חמישי"},
+      {date:"23.11.2026",day:"שני"},{date:"26.11.2026",day:"חמישי"},
+    ],
+  },
+};
+
+const EMPTY_FORM = {
+  schoolName:"", address:"", location:"", contactName:"", contactRole:"", contactPhone:"",
+  grades1:"", students1:"", grades2:"", students2:"", notes:"",
+  tourRequest:false, tourDate1:"", tourDate2:"", tourDate3:"", tourParticipants:"", tourGrades:"",
+};
+
+function makeKey(topicId, dateStr) { return `${topicId}__${dateStr}`; }
+
+function App() {
+  const [view, setView] = useState("home");
+  const [selectedTopic, setSelectedTopic] = useState(null);
+  const [selectedDate, setSelectedDate] = useState(null);
+  const [bookings, setBookings] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState(EMPTY_FORM);
+  const [adminCode, setAdminCode] = useState("");
+  const [adminUnlocked, setAdminUnlocked] = useState(false);
+
+  const loadBookings = useCallback(async () => {
+    setLoading(true);
+    try { setBookings(await dbGet()); } catch { setBookings({}); }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { loadBookings(); }, [loadBookings]);
+
+  function isBooked(topicId, dateStr) { return !!bookings[makeKey(topicId, dateStr)]; }
+
+  function reset() {
+    setView("home"); setSelectedTopic(null); setSelectedDate(null); setForm(EMPTY_FORM);
+  }
+
+  async function handleSubmit() {
+    if (!form.schoolName || !form.contactName || !form.contactPhone) return;
+    setSaving(true);
+    try {
+      const current = await dbGet();
+      const key = makeKey(selectedTopic, selectedDate.date);
+      if (current[key]) {
+        alert("מצטערים, מועד זה כבר נתפס. אנא בחרו מועד אחר.");
+        setBookings(current); setSaving(false); return;
+      }
+      const updated = { ...current, [key]: { ...form, topicId: selectedTopic, date: selectedDate, timestamp: Date.now() } };
+      await dbSet(updated); setBookings(updated); setView("success");
+    } catch { alert("שגיאה בשמירה. אנא נסו שוב."); }
+    setSaving(false);
+  }
+
+  const topic = selectedTopic ? TOPICS[selectedTopic] : null;
+
+  if (loading) return <div style={s.center}><div style={s.spinner}/><p style={{color:"#666",marginTop:16}}>טוען...</p></div>;
+  if (view==="success") return <SuccessView form={form} selectedDate={selectedDate} topic={topic} reset={reset}/>;
+  if (view==="admin") return <AdminView bookings={bookings} setBookings={setBookings} adminCode={adminCode} setAdminCode={setAdminCode} adminUnlocked={adminUnlocked} setAdminUnlocked={setAdminUnlocked} onBack={() => setView("home")}/>;
+  if (view==="form") return <FormView topic={topic} selectedDate={selectedDate} form={form} setForm={setForm} saving={saving} onSubmit={handleSubmit} onBack={() => setView("dates")}/>;
+  if (view==="dates") return <DatesView topic={topic} isBooked={isBooked} onSelect={(d) => { setSelectedDate(d); setView("form"); }} onBack={() => { setSelectedTopic(null); setView("home"); }}/>;
+  return <HomeView onSelect={(id) => { setSelectedTopic(id); setView("dates"); }} onAdmin={() => setView("admin")}/>;
+}
+
+function HomeView({ onSelect, onAdmin }) {
+  return (
+    <div style={s.page} dir="rtl">
+      <div style={s.hero}>
+        <div style={s.courtBadge}>⚖️ בתי משפט השלום · מחוז המרכז</div>
+        <h1 style={s.heroTitle}>מערכת תיאום המועדים לפרויקט "צו מעשה"</h1>
+        <p style={{...s.heroSub,fontWeight:600,fontSize:16,marginBottom:8}}>שיעור לחיים של בתי המשפט במחוז המרכז</p>
+        <p style={s.heroSub}>פתוחה כעת לבחירתכם. אנא בחרו את המועד המבוקש ומלאו את כל הפרטים הנדרשים.</p>
+      </div>
+      <div style={s.noticeBox}>
+        <p style={s.noticeTitle}>📌 דגשים חשובים</p>
+        <ul style={s.noticeList}>
+          <li>בכל מועד יתקיימו <strong>שני סבבים</strong> של שיעורים — שיעור 1: 10:00–11:30 | שיעור 2: 12:00–13:30.</li>
+          <li>משך כל שיעור <strong>כשעה וחצי</strong>.</li>
+          <li>באחריות בית הספר לדאוג ל<strong>מיקרופון, רמקולים, מקרן ומסך</strong>.</li>
+          <li>המועדים תואמו מול יומני השופטים — נודה על <strong>בחירת מועד בהקדם</strong>, על מנת שנוכל לשריין ביומנם את המועד ולהבטיח עבורכם את השיעור.</li>
+        </ul>
+      </div>
+      <div style={s.cardsRow}>
+        {Object.values(TOPICS).map(t => (
+          <button key={t.id} style={{...s.topicCard, borderTop:`5px solid ${t.color}`}} onClick={() => onSelect(t.id)}>
+            <div style={{width:10,height:10,borderRadius:"50%",background:t.color,marginBottom:12}}/>
+            <h2 style={{fontSize:17,fontWeight:700,margin:"0 0 6px",color:t.color,lineHeight:1.4}}>{t.label}</h2>
+            <p style={{color:"#777",fontSize:13,margin:"0 0 20px"}}>{t.grades}</p>
+            <div style={{background:t.color,color:"#fff",borderRadius:8,padding:"8px 18px",fontSize:14,fontWeight:600,display:"inline-block"}}>בחירת מועד ←</div>
+          </button>
+        ))}
+      </div>
+      <div style={s.contactBox}>
+        <p style={{margin:"0 0 4px",fontSize:14,color:"#555"}}>אני לרשותכם בכל שאלה 🙂</p>
+        <p style={{margin:"0 0 2px",fontWeight:700,fontSize:16,color:"#222"}}>מיכל ביטון דדון</p>
+        <p style={{margin:"0 0 12px",fontSize:13,color:"#555"}}>מנהלת מחוז בתי משפט השלום במחוז המרכז</p>
+        <div style={{display:"flex",gap:12,justifyContent:"center",flexWrap:"wrap"}}>
+          <a href="mailto:michalbi@court.gov.il" style={s.contactLink}>✉️ michalbi@court.gov.il</a>
+          <a href="tel:0506255029" style={s.contactLink}>📞 050-6255029</a>
+        </div>
+      </div>
+      <button style={s.adminBtn} onClick={onAdmin}>כניסת מנהל</button>
+    </div>
+  );
+}
+
+function DatesView({ topic, isBooked, onSelect, onBack }) {
+  return (
+    <div style={s.page} dir="rtl">
+      <BackBar onBack={onBack} label="חזרה לתפריט"/>
+      <TopicHeader topic={topic}/>
+      <p style={s.sectionLabel}>בחרו מועד פנוי:</p>
+      <div style={s.dateGrid}>
+        {topic.dates.map(d => {
+          const booked = isBooked(topic.id, d.date);
+          return (
+            <button key={d.date} disabled={booked} onClick={() => !booked && onSelect(d)}
+              style={{background:booked?"#f0f0f0":"#fff",border:`1px solid ${booked?"#ddd":"#e8e0d5"}`,borderRight:`4px solid ${booked?"#ccc":topic.color}`,borderRadius:10,padding:"16px",cursor:booked?"not-allowed":"pointer",textAlign:"right",display:"flex",flexDirection:"column",gap:6,boxShadow:booked?"none":"0 1px 4px rgba(0,0,0,0.05)",opacity:booked?0.75:1}}>
+              <span style={{fontWeight:700,fontSize:15,color:booked?"#aaa":"#222"}}>{d.date}</span>
+              <span style={{fontSize:13,color:booked?"#bbb":"#666"}}>{d.day}</span>
+              {booked
+                ? <span style={{fontSize:12,padding:"3px 10px",borderRadius:10,background:"#e0e0e0",color:"#999",fontWeight:700,alignSelf:"flex-start"}}>🔒 תפוס</span>
+                : <span style={{fontSize:12,padding:"3px 10px",borderRadius:10,background:topic.accent,color:topic.color,fontWeight:600,alignSelf:"flex-start"}}>✓ פנוי לרישום</span>
+              }
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function FormView({ topic, selectedDate, form, setForm, saving, onSubmit, onBack }) {
+  const f = (field) => (e) => setForm(p => ({...p, [field]: e.target.value}));
+  const valid = form.schoolName && form.contactName && form.contactPhone;
+
+  return (
+    <div style={s.page} dir="rtl">
+      <BackBar onBack={onBack} label="חזרה לתאריכים"/>
+      <TopicHeader topic={topic}/>
+      <div style={{display:"flex",flexWrap:"wrap",gap:12,background:topic.accent,borderRadius:10,padding:"14px 18px",margin:"0 20px 20px",fontSize:15,color:topic.color,fontWeight:600}}>
+        <span>📅 {selectedDate?.date} · {selectedDate?.day}</span>
+        <span>🕐 שיעור 1: 10:00–11:30 | שיעור 2: 12:00–13:30</span>
+      </div>
+
+      <p style={s.sectionLabel}>פרטי בית הספר:</p>
+      <div style={s.formGrid}>
+        <Field label="שם בית הספר *" value={form.schoolName} onChange={f("schoolName")}/>
+        <Field label="כתובת בית הספר" value={form.address} onChange={f("address")}/>
+        <Field label="מקום השיעור (אולם / כיתה...)" value={form.location} onChange={f("location")}/>
+        <Field label="שם איש הקשר *" value={form.contactName} onChange={f("contactName")}/>
+        <Field label="תפקיד איש הקשר" value={form.contactRole} onChange={f("contactRole")}/>
+        <Field label="נייד איש הקשר *" value={form.contactPhone} onChange={f("contactPhone")} type="tel"/>
+      </div>
+
+      <div style={{margin:"24px 20px 0",background:"#f8f8f8",border:"1px solid #e8e0d5",borderRadius:12,padding:"18px 20px"}}>
+        <p style={{fontWeight:700,fontSize:15,margin:"0 0 16px",color:"#333"}}>פרטי הקבוצות:</p>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
+          <div style={{background:"#fff",borderRadius:10,padding:"14px",border:`2px solid ${topic.accent}`}}>
+            <p style={{fontWeight:700,color:topic.color,fontSize:14,margin:"0 0 12px"}}>🕐 שיעור 1 — 10:00–11:30</p>
+            <div style={{display:"flex",flexDirection:"column",gap:10}}>
+              <Field label="לאיזה כיתות" value={form.grades1} onChange={f("grades1")} placeholder="לדוגמה: ז', ח'"/>
+              <Field label="מספר תלמידים" value={form.students1} onChange={f("students1")} type="number"/>
+            </div>
+          </div>
+          <div style={{background:"#fff",borderRadius:10,padding:"14px",border:`2px solid ${topic.accent}`}}>
+            <p style={{fontWeight:700,color:topic.color,fontSize:14,margin:"0 0 12px"}}>🕑 שיעור 2 — 12:00–13:30</p>
+            <div style={{display:"flex",flexDirection:"column",gap:10}}>
+              <Field label="לאיזה כיתות" value={form.grades2} onChange={f("grades2")} placeholder="לדוגמה: ט', י'"/>
+              <Field label="מספר תלמידים" value={form.students2} onChange={f("students2")} type="number"/>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <p style={{...s.sectionLabel,marginTop:24}}>הערות ובקשות מיוחדות:</p>
+      <div style={{padding:"0 20px"}}>
+        <textarea value={form.notes} onChange={f("notes")} placeholder="ניתן לציין בקשות מיוחדות, מגבלות נגישות, שאלות או כל מידע רלוונטי אחר..." rows={3}
+          style={{width:"100%",border:"1px solid #ddd",borderRadius:8,padding:"10px 12px",fontSize:14,fontFamily:"inherit",background:"#fff",direction:"rtl",resize:"vertical",boxSizing:"border-box",lineHeight:1.6}}/>
+      </div>
+
+      <div style={s.tourBox}>
+        <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:10}}>
+          <span style={{fontSize:32}}>🏛️</span>
+          <div>
+            <p style={{margin:0,fontWeight:700,fontSize:16,color:"#1b3d6e"}}>סיור במרכז המבקרים</p>
+            <p style={{margin:0,fontSize:13,color:"#555"}}>בית משפט השלום בפתח תקווה</p>
+          </div>
+        </div>
+        <p style={{fontSize:14,color:"#444",lineHeight:1.6,margin:"0 0 14px"}}>מעוניינים לשלב סיור מרתק במרכז המבקרים של בית המשפט? הגישו בקשה ונחזור אליכם עם מועד מתאים.</p>
+        <label style={{display:"flex",alignItems:"center",fontSize:15,fontWeight:600,color:"#1b3d6e",cursor:"pointer",gap:8}}>
+          <input type="checkbox" checked={form.tourRequest} onChange={e => setForm(p => ({...p, tourRequest: e.target.checked}))}/>
+          כן, אנחנו מעוניינים בסיור במרכז המבקרים
+        </label>
+        {form.tourRequest && (
+          <div style={{marginTop:18,borderTop:"1px solid #c4d4f0",paddingTop:16}}>
+            <p style={{fontSize:13,fontWeight:600,color:"#444",margin:"0 0 12px"}}>אנא הציעו 3 מועדים מועדפים:</p>
+            <div style={s.formGrid}>
+              <Field label="מועד מועדף ראשון" value={form.tourDate1} onChange={f("tourDate1")} placeholder="לדוגמה: 15.10.2026 בבוקר"/>
+              <Field label="מועד מועדף שני" value={form.tourDate2} onChange={f("tourDate2")} placeholder='לדוגמה: 22.10.2026 אחה"צ'/>
+              <Field label="מועד מועדף שלישי" value={form.tourDate3} onChange={f("tourDate3")} placeholder="לדוגמה: 05.11.2026 בבוקר"/>
+              <Field label="מספר משתתפים" value={form.tourParticipants} onChange={f("tourParticipants")} type="number"/>
+              <Field label="לאיזה כיתות" value={form.tourGrades} onChange={f("tourGrades")} placeholder='לדוגמה: י"א, י"ב'/>
+            </div>
+            <div style={{display:"flex",gap:10,alignItems:"flex-start",background:"#e8f0fe",borderRadius:10,padding:"12px 14px",marginTop:14}}>
+              <span style={{fontSize:18}}>ℹ️</span>
+              <p style={{fontSize:13,color:"#1b3d6e",margin:0,lineHeight:1.6}}>לאחר הגשת הבקשה, נציגנו ייצרו אתכם קשר לתיאום המועד הסופי ויעבירו את כל ההנחיות והפרטים לקראת הסיור.</p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <button style={{...s.submitBtn,background:valid?topic.color:"#ccc",cursor:valid?"pointer":"default"}} onClick={onSubmit} disabled={!valid||saving}>
+        {saving?"שומר...":"אישור ורישום ✓"}
+      </button>
+      {!valid && <p style={{textAlign:"center",color:"#b00",fontSize:12,margin:"8px 20px 0"}}>* אנא מלאו את שם בית הספר, שם איש הקשר ונייד</p>}
+    </div>
+  );
+}
+
+function SuccessView({ form, selectedDate, topic, reset }) {
+  return (
+    <div style={{...s.page,textAlign:"center"}} dir="rtl">
+      <div style={{fontSize:64,color:"#2d7a3a",margin:"40px 0 16px"}}>✓</div>
+      <h2 style={{fontSize:28,fontWeight:700,margin:"0 0 8px"}}>הרישום הושלם בהצלחה!</h2>
+      <p style={{color:"#555",fontSize:15,margin:"0 0 16px"}}>בית הספר <strong>{form.schoolName}</strong> נרשם ל:</p>
+      <div style={{display:"inline-flex",flexDirection:"column",gap:8,background:"#f0ebe4",borderRadius:12,padding:"16px 24px",margin:"0 auto 20px",textAlign:"right",fontSize:14,color:"#444"}}>
+        <span>📚 {topic?.label}</span>
+        <span>📅 {selectedDate?.date} · {selectedDate?.day}</span>
+        <span>🕐 שיעור 1: 10:00–11:30 | שיעור 2: 12:00–13:30</span>
+      </div>
+      <p style={{color:"#666",margin:"0 20px 16px",fontSize:14}}>נציג בית המשפט יצור אתכם קשר לאישור סופי.</p>
+      {form.tourRequest && (
+        <div style={{maxWidth:420,margin:"0 auto 24px",background:"#f0f5ff",border:"1px solid #c0d4f0",borderRadius:12,padding:"16px 20px",textAlign:"right"}}>
+          <p style={{fontWeight:700,color:"#1b3d6e",margin:"0 0 6px",fontSize:15}}>🏛️ בקשת סיור נרשמה!</p>
+          <p style={{color:"#555",fontSize:13,margin:0,lineHeight:1.6}}>בקשתכם לסיור במרכז המבקרים התקבלה. נציגנו ייצרו אתכם קשר בהקדם לתיאום המועד.</p>
+        </div>
+      )}
+      <button style={{...s.submitBtn,background:"#2d7a3a",maxWidth:220,margin:"16px auto 0"}} onClick={reset}>רישום בית ספר נוסף</button>
+    </div>
+  );
+}
+
+function AdminView({ bookings, setBookings, adminCode, setAdminCode, adminUnlocked, setAdminUnlocked, onBack }) {
+  const PASS = "court2026";
+  const entries = Object.entries(bookings);
+  const [approving, setApproving] = useState(null);
+  const [approvalMsg, setApprovalMsg] = useState(null);
+  const [filter, setFilter] = useState("all");
+
+  const pending = entries.filter(([,bk]) => !bk.approved).length;
+  const approved = entries.filter(([,bk]) => bk.approved).length;
+  const tourCount = entries.filter(([,bk]) => bk.tourRequest).length;
+  const filtered = entries.filter(([,bk]) => {
+    if (filter==="pending") return !bk.approved;
+    if (filter==="approved") return bk.approved;
+    if (filter==="tour") return bk.tourRequest;
+    return true;
+  });
+
+  async function handleApprove(key, bk) {
+    setApproving(key);
+    try {
+      const current = await dbGet();
+      current[key] = {...current[key], approved:true, approvedAt:Date.now()};
+      await dbSet(current); setBookings(current);
+      setApprovalMsg({schoolName:bk.schoolName,contactName:bk.contactName,date:bk.date?.date,day:bk.date?.day,topic:TOPICS[bk.topicId]?.label});
+    } catch { alert("שגיאה. אנא נסו שוב."); }
+    setApproving(null);
+  }
+
+  async function handleUnapprove(key) {
+    setApproving(key);
+    try {
+      const current = await dbGet();
+      current[key] = {...current[key], approved:false, approvedAt:null};
+      await dbSet(current); setBookings(current);
+    } catch { alert("שגיאה. אנא נסו שוב."); }
+    setApproving(null);
+  }
+
+  return (
+    <div style={s.page} dir="rtl">
+      <BackBar onBack={onBack} label="חזרה"/>
+
+      {approvalMsg && (
+        <div style={s.modal}>
+          <div style={s.modalBox}>
+            <div style={{fontSize:52,color:"#2d7a3a",marginBottom:8}}>✓</div>
+            <h3 style={{fontSize:22,fontWeight:700,margin:"0 0 16px"}}>הרישום אושר!</h3>
+            <div style={{background:"#f0f7f1",borderRadius:10,padding:"14px 18px",marginBottom:16,textAlign:"right"}}>
+              <p style={{fontWeight:700,fontSize:17,margin:"0 0 6px"}}>{approvalMsg.schoolName}</p>
+              <p style={{fontSize:14,color:"#444",margin:"4px 0"}}>📚 {approvalMsg.topic}</p>
+              <p style={{fontSize:14,color:"#444",margin:"4px 0"}}>📅 {approvalMsg.date} · {approvalMsg.day}</p>
+              <p style={{fontSize:14,color:"#444",margin:"4px 0"}}>🕐 שיעור 1: 10:00–11:30 | שיעור 2: 12:00–13:30</p>
+            </div>
+            <div style={{background:"#f8f9ff",border:"1px solid #d0d8f0",borderRadius:10,padding:"14px 18px",textAlign:"right",marginBottom:16}}>
+              <p style={{fontWeight:700,fontSize:13,color:"#555",margin:"0 0 10px"}}>📋 הודעה לשליחה לבית הספר:</p>
+              <div style={{fontSize:13,color:"#333",lineHeight:1.8}}>
+                <p style={{margin:"0 0 6px"}}>שלום {approvalMsg.contactName},</p>
+                <p style={{margin:"0 0 6px"}}>רישום בית הספר <strong>{approvalMsg.schoolName}</strong> לפרויקט "צו מעשה" – שיעור לחיים <strong>אושר בהצלחה!</strong></p>
+                <p style={{margin:"0 0 6px"}}>📅 תאריך: {approvalMsg.date} ({approvalMsg.day})<br/>🕐 שיעור 1: 10:00–11:30 | שיעור 2: 12:00–13:30</p>
+                <p style={{margin:0}}>נשמח לראותכם! לכל שאלה — מיכל ביטון דדון, 050-6255029</p>
+              </div>
+            </div>
+            <button style={{...s.submitBtn,background:"#1b5e8a",maxWidth:200,margin:"0 auto"}} onClick={() => setApprovalMsg(null)}>סגור</button>
+          </div>
+        </div>
+      )}
+
+      <div style={{padding:"0 20px 16px"}}>
+        <h2 style={{fontSize:24,fontWeight:700,margin:"0 0 4px"}}>ממשק מנהל</h2>
+        <p style={{color:"#666",fontSize:14,margin:0}}>מערכת תיאום מועדים · פרויקט צו מעשה</p>
+      </div>
+
+      {!adminUnlocked ? (
+        <div style={{maxWidth:360,margin:"40px auto",textAlign:"center",padding:"0 20px"}}>
+          <div style={{fontSize:48,marginBottom:16}}>🔐</div>
+          <input type="password" placeholder="הזינו סיסמת מנהל" value={adminCode}
+            onChange={e => setAdminCode(e.target.value)}
+            onKeyDown={e => e.key==="Enter" && setAdminUnlocked(adminCode===PASS)}
+            style={{width:"100%",border:"1px solid #ddd",borderRadius:8,padding:12,fontSize:15,textAlign:"center",fontFamily:"inherit",boxSizing:"border-box"}}/>
+          <button style={{...s.submitBtn,background:"#2c3e50",marginTop:12}} onClick={() => setAdminUnlocked(adminCode===PASS)}>כניסה</button>
+          {adminCode && adminCode!==PASS && <p style={{color:"red",marginTop:8}}>סיסמה שגויה</p>}
+        </div>
+      ) : (
+        <>
+          <div style={{display:"flex",gap:12,padding:"0 20px 20px",flexWrap:"wrap"}}>
+            {[
+              {n:entries.length,lbl:'סה"כ רישומים',color:"#2c3e50",border:"#aaa"},
+              {n:pending,lbl:"ממתינים לאישור",color:"#b87200",border:"#e8a020"},
+              {n:approved,lbl:"אושרו",color:"#2d7a3a",border:"#2d7a3a"},
+              {n:tourCount,lbl:"בקשות סיור",color:"#1b5e8a",border:"#1b5e8a"},
+            ].map((st,i) => (
+              <div key={i} style={{flex:"1 1 100px",background:"#fff",borderRadius:10,padding:"14px 16px",textAlign:"center",boxShadow:"0 1px 6px rgba(0,0,0,0.06)",borderRight:`3px solid ${st.border}`}}>
+                <span style={{display:"block",fontSize:28,fontWeight:700,color:st.color}}>{st.n}</span>
+                <span style={{fontSize:12,color:"#777"}}>{st.lbl}</span>
+              </div>
+            ))}
+          </div>
+
+          <div style={{display:"flex",gap:8,padding:"0 20px 16px",flexWrap:"wrap"}}>
+            {[["all","הכל"],["pending","ממתינים"],["approved","אושרו"],["tour","סיורים 🏛️"]].map(([val,lbl]) => (
+              <button key={val} onClick={() => setFilter(val)}
+                style={{padding:"7px 18px",borderRadius:20,border:"1px solid #ddd",fontSize:13,cursor:"pointer",fontFamily:"inherit",background:filter===val?"#2c3e50":"#fff",color:filter===val?"#fff":"#555"}}>
+                {lbl}
+              </button>
+            ))}
+          </div>
+
+          {filtered.length===0
+            ? <p style={{textAlign:"center",color:"#999",marginTop:32,padding:"0 20px"}}>אין רישומים בקטגוריה זו.</p>
+            : <div style={{display:"flex",flexDirection:"column",gap:14,padding:"0 20px"}}>
+                {filtered.map(([key,bk]) => (
+                  <div key={key} style={{background:"#fff",borderRadius:12,padding:"18px 20px",boxShadow:"0 1px 8px rgba(0,0,0,0.07)",border:"1px solid #e8e0d5",borderRight:`5px solid ${bk.approved?"#2d7a3a":"#e8a020"}`}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10,gap:10}}>
+                      <div>
+                        <p style={{fontWeight:700,fontSize:16,margin:"0 0 4px"}}>{bk.schoolName}</p>
+                        <p style={{fontSize:13,color:"#666",margin:"2px 0"}}>{TOPICS[bk.topicId]?.label}</p>
+                        <p style={{fontSize:13,color:"#666",margin:"2px 0"}}>📅 {bk.date?.date} · {bk.date?.day}</p>
+                        <p style={{fontSize:13,color:"#666",margin:"2px 0"}}>🕐 שיעור 1: 10:00–11:30 | שיעור 2: 12:00–13:30</p>
+                      </div>
+                      <span style={{fontSize:12,fontWeight:700,padding:"4px 12px",borderRadius:20,whiteSpace:"nowrap",flexShrink:0,background:bk.approved?"#e6f4ea":"#fff8e6",color:bk.approved?"#2d7a3a":"#b87200",border:`1px solid ${bk.approved?"#a8d5b0":"#f0c060"}`}}>
+                        {bk.approved?"✓ אושר":"⏳ ממתין"}
+                      </span>
+                    </div>
+
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
+                      {[{label:"שיעור 1 — 10:00–11:30",grades:bk.grades1,students:bk.students1},{label:"שיעור 2 — 12:00–13:30",grades:bk.grades2,students:bk.students2}].map((sh,i) => (
+                        <div key={i} style={{background:"#f9f7f4",borderRadius:8,padding:"10px 12px",fontSize:13}}>
+                          <p style={{fontWeight:700,color:"#444",margin:"0 0 4px"}}>{sh.label}</p>
+                          <p style={{color:"#555",margin:"2px 0"}}>כיתות: {sh.grades||"—"}</p>
+                          <p style={{color:"#555",margin:0}}>תלמידים: {sh.students||"—"}</p>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div style={{display:"flex",flexWrap:"wrap",gap:"4px 16px",fontSize:13,color:"#555",marginBottom:12,borderTop:"1px solid #f0ebe4",paddingTop:10}}>
+                      <span>👤 {bk.contactName}{bk.contactRole?` · ${bk.contactRole}`:""}</span>
+                      <span>📞 {bk.contactPhone}</span>
+                      {bk.address && <span>📍 {bk.address}</span>}
+                      {bk.location && <span>🏫 {bk.location}</span>}
+                      {bk.notes && <span style={{width:"100%",background:"#fffbf0",border:"1px solid #f0e0a0",borderRadius:6,padding:"6px 10px",color:"#6a4f00",marginTop:4}}>💬 הערה: {bk.notes}</span>}
+                      {bk.tourRequest && (
+                        <div style={{width:"100%",background:"#eef3ff",border:"1px solid #b0c8f0",borderRadius:8,padding:"10px 12px",marginTop:6}}>
+                          <p style={{margin:"0 0 6px",fontWeight:700,color:"#1b3d6e",fontSize:13}}>🏛️ בקשת סיור — מרכז המבקרים פ"ת</p>
+                          <p style={{margin:"2px 0",fontSize:12,color:"#444"}}>👥 משתתפים: {bk.tourParticipants||"—"} | כיתות: {bk.tourGrades||"—"}</p>
+                          <p style={{margin:"2px 0",fontSize:12,color:"#444"}}>מועד 1: {bk.tourDate1||"—"} | מועד 2: {bk.tourDate2||"—"} | מועד 3: {bk.tourDate3||"—"}</p>
+                        </div>
+                      )}
+                    </div>
+
+                    {!bk.approved
+                      ? <button disabled={approving===key} onClick={() => handleApprove(key,bk)}
+                          style={{width:"100%",background:"#2d7a3a",color:"#fff",border:"none",borderRadius:8,padding:"11px 20px",fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit",opacity:approving===key?0.6:1}}>
+                          {approving===key?"מאשר...":"✓ אשר רישום"}
+                        </button>
+                      : <button disabled={approving===key} onClick={() => handleUnapprove(key)}
+                          style={{width:"100%",background:"#f5f0eb",color:"#888",border:"1px solid #ddd",borderRadius:8,padding:"11px 20px",fontSize:13,cursor:"pointer",fontFamily:"inherit",opacity:approving===key?0.6:1}}>
+                          ביטול אישור
+                        </button>
+                    }
+                  </div>
+                ))}
+              </div>
+          }
+        </>
+      )}
+    </div>
+  );
+}
+
+function TopicHeader({ topic }) {
+  return (
+    <div style={{margin:"0 20px 20px",padding:"14px 16px",background:"#fff",borderRadius:10,boxShadow:"0 1px 6px rgba(0,0,0,0.06)",borderRight:`5px solid ${topic.color}`}}>
+      <h2 style={{margin:0,fontSize:16,fontWeight:700,color:topic.color}}>{topic.label}</h2>
+      <span style={{fontSize:12,color:"#777"}}>{topic.grades}</span>
+    </div>
+  );
+}
+function BackBar({ onBack, label }) {
+  return <button onClick={onBack} style={{background:"none",border:"none",color:"#555",fontSize:14,cursor:"pointer",padding:"16px 20px",display:"block"}}>← {label}</button>;
+}
+function Field({ label, value, onChange, type="text", placeholder="" }) {
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:4}}>
+      <label style={{fontSize:12,color:"#555",fontWeight:600}}>{label}</label>
+      <input type={type} value={value} onChange={onChange} placeholder={placeholder}
+        style={{border:"1px solid #ddd",borderRadius:8,padding:"10px 12px",fontSize:14,fontFamily:"inherit",background:"#fff",direction:"rtl"}}/>
+    </div>
+  );
+}
+
+const s = {
+  center:{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:"100vh"},
+  spinner:{width:40,height:40,border:"4px solid #e0d8cc",borderTop:"4px solid #8b5e3c",borderRadius:"50%",animation:"spin 1s linear infinite"},
+  page:{minHeight:"100vh",background:"#faf8f5",fontFamily:"'Noto Serif Hebrew',sans-serif",paddingBottom:60,maxWidth:900,margin:"0 auto"},
+  hero:{background:"linear-gradient(135deg,#2c3e50 0%,#34495e 100%)",color:"#fff",padding:"40px 24px 32px",textAlign:"center"},
+  courtBadge:{display:"inline-block",border:"1px solid rgba(255,255,255,0.4)",borderRadius:20,padding:"4px 16px",fontSize:12,marginBottom:16,letterSpacing:1},
+  heroTitle:{fontSize:26,fontWeight:700,margin:"0 0 8px"},
+  heroSub:{fontSize:15,opacity:0.9,margin:"0 0 4px"},
+  noticeBox:{margin:"20px 20px 0",background:"#fff8ee",border:"1.5px solid #f0c878",borderRadius:12,padding:"16px 20px"},
+  noticeTitle:{margin:"0 0 10px",fontWeight:700,fontSize:15,color:"#7a4f00"},
+  noticeList:{margin:0,paddingRight:20,color:"#555",fontSize:14,lineHeight:2},
+  cardsRow:{display:"flex",gap:20,padding:"24px 20px",flexWrap:"wrap",justifyContent:"center"},
+  topicCard:{flex:"1 1 260px",maxWidth:340,background:"#fff",border:"1px solid #e8e0d5",borderRadius:12,padding:"28px 24px",cursor:"pointer",textAlign:"right",boxShadow:"0 2px 12px rgba(0,0,0,0.06)"},
+  contactBox:{margin:"8px 20px 16px",background:"#fff",border:"1px solid #e8e0d5",borderRadius:12,padding:"20px",textAlign:"center"},
+  contactLink:{color:"#1b5e8a",fontSize:14,fontWeight:600,textDecoration:"none",background:"#f0f5ff",padding:"6px 14px",borderRadius:20,border:"1px solid #c0d4f0"},
+  adminBtn:{display:"block",margin:"0 auto 8px",background:"none",border:"1px solid #ccc",borderRadius:20,padding:"6px 20px",color:"#888",fontSize:12,cursor:"pointer"},
+  sectionLabel:{padding:"0 20px",fontSize:14,color:"#444",marginBottom:12,fontWeight:600},
+  dateGrid:{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))",gap:12,padding:"0 20px"},
+  formGrid:{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(240px,1fr))",gap:12,padding:"0 20px"},
+  tourBox:{margin:"24px 20px 0",background:"#f4f7ff",border:"1.5px solid #c4d4f0",borderRadius:14,padding:"20px"},
+  submitBtn:{display:"block",width:"calc(100% - 40px)",margin:"28px 20px 0",color:"#fff",border:"none",borderRadius:12,padding:"16px",fontSize:17,fontWeight:700,cursor:"pointer",fontFamily:"inherit"},
+  modal:{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:999,display:"flex",alignItems:"center",justifyContent:"center",padding:20},
+  modalBox:{background:"#fff",borderRadius:16,padding:"32px 28px",maxWidth:480,width:"100%",textAlign:"center",boxShadow:"0 8px 40px rgba(0,0,0,0.2)",maxHeight:"90vh",overflowY:"auto"},
+};
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<App/>);
+</script>
+</body>
+</html>
